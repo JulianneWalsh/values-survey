@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Society's values: today and in 2060</title>
+<title>Society's values: Today and in 2060</title>
 
 <!--
   =====================================================================
@@ -145,7 +145,7 @@ fieldset.sliders legend { padding: 0 6px; font-weight: 700; }
     <polygon points="15,3 3,25 27,25" fill="none" stroke="#1B2430" stroke-width="2" stroke-linejoin="round"/>
     <circle cx="15" cy="3" r="3" fill="#B35A00"/><circle cx="3" cy="25" r="3" fill="#7B3FA0"/><circle cx="27" cy="25" r="3" fill="#0072B2"/>
   </svg>
-  <h1>Society's values: today and in 2060</h1>
+  <h1>Society's values: Today and in 2060</h1>
 </header>
 
 <main>
@@ -181,7 +181,7 @@ fieldset.sliders legend { padding: 0 6px; font-weight: 700; }
       </ol>
     </div>
 
-    <p class="muted" style="margin-top:16px">You will place one dot for <strong>society today</strong>, then one dot for <strong>society in 2060</strong>.
+    <p class="muted" style="margin-top:16px">You will place one dot for <strong>Society today</strong>, then one dot for <strong>Society in 2060</strong>.
        Click or tap to place the dot, then click elsewhere or drag to move it. Prefer a keyboard? Use the three sliders under each triangle.</p>
 
     <div class="nav"><button type="button" class="btn" id="btn-start">Start the survey</button></div>
@@ -223,14 +223,16 @@ fieldset.sliders legend { padding: 0 6px; font-weight: 700; }
   <!-- ======================= SCREEN: THANKS ======================= -->
   <section id="screen-thanks" class="card" aria-labelledby="h-thanks" hidden>
     <h2 id="h-thanks" tabindex="-1">Thank you!</h2>
-    <p>Your answers have been recorded. Thank you for taking part in our coursework survey. You can now close this page.</p>
+    <p>Thank you for taking part in our coursework survey.</p>
+    <p class="status" id="save-status" role="status" aria-live="polite"></p>
+    <p><button type="button" class="btn" id="btn-retry" hidden>Try saving again</button></p>
     <div class="summary" id="summary-wrap" hidden>
       <h3>Your two dots</h3>
       <svg id="summary-svg" class="ternary example" viewBox="0 0 560 470" role="img"
-           aria-label="Your two dots in one triangle, joined by a dashed line: a hollow dot for society today and a solid dot for society in 2060."></svg>
+           aria-label="Your two dots in one triangle, joined by a dashed line: a hollow dot for Society today and a solid dot for Society in 2060."></svg>
       <p class="legend-line">
-        <span><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="#fff" stroke="#1B2430" stroke-width="3.5"/></svg>Hollow dot: society today</span>
-        <span><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="#1B2430"/></svg>Solid dot: society in 2060</span>
+        <span><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="#fff" stroke="#1B2430" stroke-width="3.5"/></svg>Hollow dot: Society today</span>
+        <span><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="#1B2430"/></svg>Solid dot: Society in 2060</span>
       </p>
     </div>
   </section>
@@ -274,9 +276,10 @@ const VALUES = [
 const MESSAGES = {
   invalid_token:  "Something went wrong with the anonymous ID in your browser. Please reload the page and try again.",
   invalid_data:   "Something was wrong with the answers sent. Please reload the page, place both dots again and resubmit.",
-  busy:           "The server is busy right now. Please wait a few seconds and press \"Try again\".",
-  server_error:   "Something went wrong on our side. Please press \"Try again\" in a moment.",
-  network:        "We couldn't reach the server. Please check your internet connection and press \"Try again\".",
+  busy:           "The server is busy right now.",
+  server_error:   "Something went wrong on our side.",
+  network:        "We couldn't reach the server. Please check your internet connection.",
+  already_note:   "A response from this browser was already saved earlier, so this one wasn't added. Thank you!",
   not_configured: "This survey isn't connected to its data sheet yet (APPS_SCRIPT_URL has not been set)."
 };
 // (The error "already_submitted" is handled separately: it shows the "already responded" screen.)
@@ -670,47 +673,85 @@ btnNext.addEventListener("click", () => show("plot2"));
 $("btn-back-plot1").addEventListener("click", () => show("plot1"));
 btnSubmit.addEventListener("click", submit);
 
-async function submit() {
-  if (PREVIEW || submitting) return;                       // preview mode never contacts the server
-  const present = plotPresent.getValues(), future = plot2060.getValues();
-  if (!present || !future) return;
-  if (APPS_SCRIPT_URL.indexOf("PASTE_") === 0) { setStatus(MESSAGES.not_configured, true); return; }
+// SENDING THE ANSWERS
+// The thank-you screen appears straight away and the answers are saved in the background
+// (Google Apps Script can take several seconds). The page says "Saving..." until the server
+// confirms, retries automatically if the connection hiccups, and offers a button if it still fails.
+let pendingPayload = null;
 
-  submitting = true; updateButtons();
-  btnSubmit.textContent = "Sending...";
-  setStatus("", false);
+function setSaveStatus(text, isError) {
+  const el = $("save-status");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+const warnBeforeLeaving = e => { e.preventDefault(); e.returnValue = ""; };
 
+/** One attempt to send. Returns { ok: true } or { ok: false, error: "code" }. */
+async function sendOnce(payload) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);     // give up after 20 seconds
-  let retry = false;
+  const timer = setTimeout(() => controller.abort(), 30000);          // give up after 30 seconds
   try {
     // Content-Type text/plain avoids the CORS "preflight" request that Apps Script cannot answer.
     const res = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ token: getToken(), present: present, y2060: future }),
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
     const data = await res.json();
-    if (data && data.ok) {
-      rememberSubmission();
-      buildSummary(present, future);
-      show("thanks");
-      return;
-    }
-    const err = (data && data.error) || "server_error";
-    if (err === "already_submitted") { rememberSubmission(); show("already"); return; }
-    setStatus(MESSAGES[err] || MESSAGES.server_error, true);
-    retry = RETRYABLE.indexOf(err) !== -1;
+    return data && data.ok ? { ok: true } : { ok: false, error: (data && data.error) || "server_error" };
   } catch (e) {
-    setStatus(MESSAGES.network, true);
-    retry = true;
+    return { ok: false, error: "network" };
   } finally {
     clearTimeout(timer);
-    submitting = false;
-    btnSubmit.textContent = retry ? "Try again" : "Submit my answers";
-    updateButtons();
   }
+}
+
+async function saveInBackground(payload) {
+  if (submitting) return;
+  submitting = true;
+  $("btn-retry").hidden = true;
+  setSaveStatus("Saving your answers... please keep this page open for a moment.", false);
+  window.addEventListener("beforeunload", warnBeforeLeaving);
+
+  let result = { ok: false, error: "network" };
+  for (let attempt = 0; attempt < 3; attempt++) {                    // up to 3 tries for temporary problems
+    result = await sendOnce(payload);
+    if (result.ok || RETRYABLE.indexOf(result.error) === -1) break;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  window.removeEventListener("beforeunload", warnBeforeLeaving);
+  submitting = false;
+  if (result.ok) {
+    rememberSubmission();
+    setSaveStatus("Your answers are saved. You can now close this page.", false);
+  } else if (result.error === "already_submitted") {
+    rememberSubmission();
+    setSaveStatus(MESSAGES.already_note, false);
+  } else {
+    setSaveStatus((MESSAGES[result.error] || MESSAGES.server_error) + " Your answers have not been saved yet.", true);
+    $("btn-retry").hidden = false;
+  }
+}
+
+function submit() {
+  if (PREVIEW || submitting) return;                       // preview mode never contacts the server
+  const present = plotPresent.getValues(), future = plot2060.getValues();
+  if (!present || !future) return;
+  if (APPS_SCRIPT_URL.indexOf("PASTE_") === 0) { setStatus(MESSAGES.not_configured, true); return; }
+
+  pendingPayload = { token: getToken(), present: present, y2060: future };
+  buildSummary(present, future);
+  show("thanks");
+  saveInBackground(pendingPayload);
+}
+$("btn-retry").addEventListener("click", () => saveInBackground(pendingPayload));
+
+// Wake up the Google backend while the respondent reads the intro, so the real submission
+// doesn't have to wait for a "cold start". (Sends no data; skipped in preview mode.)
+if (!PREVIEW && APPS_SCRIPT_URL.indexOf("PASTE_") !== 0) {
+  fetch(APPS_SCRIPT_URL, { mode: "no-cors" }).catch(() => {});
 }
 
 // ---- Start-up ----
