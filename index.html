@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Society's values: today and in 2060</title>
+
+<!--
+  =====================================================================
+  Digital Society (UCD) - Section 2: "Changing values" survey
+  One self-contained file: inline CSS + inline JavaScript + inline SVG.
+  No frameworks, no external libraries, no CDNs.
+
+  Structure of this file
+    1. <style>   - all the styling (design tokens first)
+    2. <body>    - five "screens": intro, plot 1, plot 2, thanks, already-responded
+    3. <script>  - configuration, geometry maths, the reusable ternary-plot
+                   component, and the page flow / submission logic
+  =====================================================================
+-->
+
+<style>
+/* ---------- 1. Design tokens ---------- */
+:root {
+  --ink: #1B2430;          /* main text + dot colour */
+  --muted: #4A5568;        /* secondary text (contrast 7:1 on white) */
+  --line: #D5DAE1;         /* borders, grid lines */
+  --page: #F4F6F9;         /* page background */
+  --card: #FFFFFF;
+  /* One colour per value. Chosen to be colour-blind friendly and deliberately
+     NOT red/green, so no value looks "good" or "bad". */
+  --ep:  #B35A00;         /* Economic Prosperity  (burnt orange) */
+  --eq:  #7B3FA0;         /* Equality             (purple)       */
+  --env: #0072B2;         /* Environmental Protection (blue)     */
+  --radius: 12px;
+}
+
+/* ---------- 2. Base ---------- */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 1rem/1.55 "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 56px; }
+h1 { font-size: 1.15rem; margin: 0; padding: 14px 16px; background: var(--ink); color: #fff; font-weight: 600; }
+h2 { font-size: 1.6rem; line-height: 1.2; margin: 0 0 12px; }
+h3 { font-size: 1.1rem; margin: 24px 0 8px; }
+h2:focus { outline: none; }                 /* heading receives focus programmatically */
+p  { margin: 0 0 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+.muted { color: var(--muted); }
+
+/* ---------- 3. Focus + buttons (large touch targets) ---------- */
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.btn {
+  min-height: 48px; min-width: 48px; padding: 10px 20px;
+  font: inherit; font-weight: 600; cursor: pointer;
+  border-radius: 10px; border: 2px solid var(--ink);
+  background: var(--ink); color: #fff;
+}
+.btn.secondary { background: #fff; color: var(--ink); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.nav { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 20px; }
+.nav .spacer { flex: 1; }
+.hint { color: var(--muted); font-size: .95rem; margin: 0; }
+
+/* ---------- 4. Message boxes ---------- */
+.info { border-left: 6px solid var(--ink); background: #EEF1F5; padding: 14px 16px; border-radius: 8px; }
+.info ul { margin: 8px 0 0; padding-left: 20px; }
+.banner { background: #FFF4CC; border: 2px solid #8A6A00; color: #3D2F00; padding: 10px 14px; border-radius: 8px; font-weight: 600; margin: 0 0 16px; }
+.scenario { margin: 0 0 16px; padding: 14px 16px; background: #EEF1F5; border-left: 6px solid var(--ink); border-radius: 8px; }
+.status { min-height: 1.5em; margin: 12px 0 0; font-weight: 600; }
+.status.error { color: #9B1C1C; }
+
+/* ---------- 5. Plot layout ---------- */
+.plot-layout { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 900px) { .plot-layout { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; } }
+
+svg.ternary {
+  display: block; width: 100%; height: auto; max-width: 560px; margin: 0 auto;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  touch-action: none;                 /* lets a finger drag the dot instead of scrolling */
+  -webkit-user-select: none; user-select: none;
+  cursor: crosshair;
+}
+svg.example { cursor: default; touch-action: auto; max-width: 420px; }
+
+.key { list-style: none; margin: 0 0 16px; padding: 0; }
+.key li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.key li:last-child { border-bottom: 0; }
+.swatch { width: 18px; height: 18px; border-radius: 4px; margin-top: 4px; }
+.key strong { display: block; }
+
+.readout { padding: 12px 14px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 600; margin-bottom: 12px; background: #fff; }
+.readout .item { white-space: nowrap; }
+
+fieldset.sliders { margin: 16px 0; padding: 12px 14px 4px; border: 1px solid var(--line); border-radius: 10px; }
+fieldset.sliders legend { padding: 0 6px; font-weight: 600; }
+.slider-row { display: grid; grid-template-columns: 1fr; gap: 2px; margin-bottom: 12px; }
+.slider-row label { font-weight: 600; }
+.slider-row .line { display: grid; grid-template-columns: 1fr 64px; gap: 10px; align-items: center; }
+.slider-row input[type=range] { width: 100%; height: 32px; margin: 0; }
+.slider-row output { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.example-wrap { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: center; }
+@media (min-width: 760px) { .example-wrap { grid-template-columns: 1fr 1fr; } }
+.example-list { margin: 0; padding-left: 20px; }
+.example-list li { margin-bottom: 8px; }
+
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+</style>
+</head>
+
+<body>
+<h1>Society's values: today and in 2060</h1>
+
+<main>
+  <!-- Shown on every screen when the URL contains ?preview -->
+  <p class="banner" id="preview-banner" hidden>Preview only: responses can only be submitted from the main survey link.</p>
+
+  <!-- ======================= SCREEN: INTRO ======================= -->
+  <section id="screen-intro" class="card" aria-labelledby="h-intro">
+    <h2 id="h-intro" tabindex="-1">Before you start</h2>
+
+    <div class="info">
+      <p><strong>About this survey</strong></p>
+      <ul>
+        <li>It is part of a <strong>university coursework project</strong> (UCD, Digital Society module).</li>
+        <li>It is <strong>anonymous and voluntary</strong>. You can stop at any time by closing the page.</li>
+        <li>It collects <strong>no names, emails or other personal data</strong>.</li>
+        <li>It takes <strong>about 2 minutes</strong>.</li>
+        <li>To stop the same browser answering twice, a random ID (not linked to you in any way) is saved in your browser and checked when you submit.</li>
+      </ul>
+    </div>
+
+    <h3>How to use a ternary plot</h3>
+    <p>Each corner of the triangle is one value. <strong>The closer your dot is to a corner, the more important that value is.</strong>
+       A dot in the middle means all three are equally important. There are no right or wrong answers.</p>
+
+    <div class="example-wrap">
+      <svg id="example-svg" class="ternary example" viewBox="0 0 560 470" role="img"
+           aria-label="Example triangle with three labelled dots: A near the Economic Prosperity corner, B in the middle, C near the Equality corner."></svg>
+      <ol class="example-list" type="A">
+        <li><strong>Dot A</strong> sits near the top corner: Economic Prosperity is given most importance (70%), Equality and Environmental Protection 15% each.</li>
+        <li><strong>Dot B</strong> sits in the middle: all three values are about equally important (about 33% each).</li>
+        <li><strong>Dot C</strong> sits near the bottom-left corner: Equality is given most importance (80%), the other two 10% each.</li>
+      </ol>
+    </div>
+
+    <p class="muted" style="margin-top:16px">You will place one dot for <strong>society today</strong>, then one dot for <strong>society in 2060</strong>.
+       Click or tap to place the dot, then click elsewhere or drag to move it. Prefer a keyboard? Use the three sliders under each triangle.</p>
+
+    <div class="nav"><button type="button" class="btn" id="btn-start">Start the survey</button></div>
+  </section>
+
+  <!-- ======================= SCREEN: PLOT 1 ======================= -->
+  <section id="screen-plot1" class="card" aria-labelledby="h-plot1" hidden>
+    <p class="hint">Step 1 of 2</p>
+    <h2 id="h-plot1" tabindex="-1">Society TODAY</h2>
+    <p>How much importance do you believe society <strong>currently</strong> places on each of these three values?
+       Click or tap inside the triangle to place your dot.</p>
+    <div id="mount-present"></div>
+    <div class="nav">
+      <button type="button" class="btn secondary" id="btn-back-intro">Back</button>
+      <span class="spacer"></span>
+      <p class="hint" id="hint-next"></p>
+      <button type="button" class="btn" id="btn-next">Next: Society in 2060</button>
+    </div>
+  </section>
+
+  <!-- ======================= SCREEN: PLOT 2 ======================= -->
+  <section id="screen-plot2" class="card" aria-labelledby="h-plot2" hidden>
+    <p class="hint">Step 2 of 2</p>
+    <h2 id="h-plot2" tabindex="-1">Society in 2060</h2>
+    <blockquote class="scenario">
+      <strong>The scenario.</strong> By 2060, as extreme climate change became apparent, with rising sea levels and flooding, private insurers began refusing to insure the worst-affected land. This had a knock-on effect: no insurance meant no mortgages, causing a crash in the property market. Houses in these areas became practically worthless, driving up prices further inland and causing an influx of migrants moving inland. Coastal cities became full of people too poor to leave, minimally governed and severely neglected. The contrast not only in life expectancy but also in available facilities and quality of life grew strikingly obvious, driven by the varying population density.
+    </blockquote>
+    <p>In the world described above, how much importance do you believe society <strong>will</strong> place on each of these three values?</p>
+    <div id="mount-2060"></div>
+    <div class="nav">
+      <button type="button" class="btn secondary" id="btn-back-plot1">Back</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="btn-submit">Submit my answers</button>
+    </div>
+    <p class="hint" id="hint-submit"></p>
+    <p class="status" id="submit-status" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- ======================= SCREEN: THANKS ======================= -->
+  <section id="screen-thanks" class="card" aria-labelledby="h-thanks" hidden>
+    <h2 id="h-thanks" tabindex="-1">Thank you!</h2>
+    <p>Your answers have been recorded. Thank you for taking part in our coursework survey. You can now close this page.</p>
+  </section>
+
+  <!-- ======================= SCREEN: ALREADY RESPONDED ======================= -->
+  <section id="screen-already" class="card" aria-labelledby="h-already" hidden>
+    <h2 id="h-already" tabindex="-1">Thank you, you've already responded</h2>
+    <p>A response has already been submitted from this browser, so there is nothing more to do. Thanks again for your help!</p>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   A. CONFIGURATION  (the only things you should need to edit)
+   ===================================================================== */
+
+// Paste the Web App URL from your Google Apps Script deployment here.
+// It looks like https://script.google.com/macros/s/AKfy.../exec
+// (It will be visible in the page source. That is fine: the server checks everything.)
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxniSsEKsi0f_uebcNct2QPtkFU-oPf_cuy4Tz-vBNOZpLepxe8-TJTJWhdHc-GVVU/exec";
+
+const STORAGE_KEY = "ternary_survey_submitted_v1";   // localStorage "already responded" flag
+const TOKEN_KEY   = "ternary_survey_token_v1";       // localStorage random anonymous device ID
+
+// The three values: exact labels and neutral definitions from the brief.
+const VALUES = [
+  { key: "economic_prosperity",     name: "Economic Prosperity",      lines: ["Economic", "Prosperity"],
+    color: "#B35A00",
+    definition: "Society should prioritise a strong economy, stable property markets and affordable, well-priced risk, even if some places or people lose out." },
+  { key: "equality",                name: "Equality",                 lines: ["Equality"],
+    color: "#7B3FA0",
+    definition: "Society should prioritise treating everyone the same and sharing the costs of climate change, so that no person or community is left behind." },
+  { key: "environmental_protection", name: "Environmental Protection", lines: ["Environmental", "Protection"],
+    color: "#0072B2",
+    definition: "Society should prioritise protecting the climate and natural environment, even if it costs money or means giving up land." }
+];
+
+// Friendly messages for every error the server (or network) can return.
+const MESSAGES = {
+  invalid_token:  "Something went wrong with the anonymous ID in your browser. Please reload the page and try again.",
+  invalid_data:   "Something was wrong with the answers sent. Please reload the page, place both dots again and resubmit.",
+  busy:           "The server is busy right now. Please wait a few seconds and press \"Try again\".",
+  server_error:   "Something went wrong on our side. Please press \"Try again\" in a moment.",
+  network:        "We couldn't reach the server. Please check your internet connection and press \"Try again\".",
+  not_configured: "This survey isn't connected to its data sheet yet (APPS_SCRIPT_URL has not been set)."
+};
+// (The error "already_submitted" is handled separately: it shows the "already responded" screen.)
+// Errors where pressing the button again could help:
+const RETRYABLE = ["busy", "server_error", "network"];
+
+/* =====================================================================
+   B. GEOMETRY: the triangle, and conversion between x/y and percentages
+   Corners: Economic Prosperity = top, Equality = bottom-left,
+            Environmental Protection = bottom-right.
+   A dot at (x, y) is converted to "barycentric" weights (a, b, c) that
+   add up to 1 (i.e. 100%). a = weight of top corner, b = bottom-left,
+   c = bottom-right.
+   ===================================================================== */
+const VIEW = { w: 560, h: 470 };                       // SVG coordinate space
+const SIDE = 380;
+const HEIGHT = SIDE * Math.sqrt(3) / 2;
+const TOP = { x: 280, y: 400 - HEIGHT };
+const LEFT = { x: 90, y: 400 };
+const RIGHT = { x: 90 + SIDE, y: 400 };
+const CORNERS = [TOP, LEFT, RIGHT];                    // same order as VALUES
+
+/** Weights (any positive numbers) -> point inside the triangle. */
+function toXY(a, b, c) {
+  const s = a + b + c;
+  return {
+    x: (a * TOP.x + b * LEFT.x + c * RIGHT.x) / s,
+    y: (a * TOP.y + b * LEFT.y + c * RIGHT.y) / s
+  };
+}
+
+/** Point -> weights [a, b, c] (may be negative if the point is outside). */
+function toWeights(p) {
+  const a = (LEFT.y - p.y) / HEIGHT;
+  const c = (p.x - LEFT.x - a * (TOP.x - LEFT.x)) / SIDE;
+  return [a, 1 - a - c, c];
+}
+
+/** Closest point to p on the line segment u-v. */
+function closestOnSegment(p, u, v) {
+  const dx = v.x - u.x, dy = v.y - u.y;
+  let t = ((p.x - u.x) * dx + (p.y - u.y) * dy) / (dx * dx + dy * dy);
+  t = Math.max(0, Math.min(1, t));
+  return { x: u.x + t * dx, y: u.y + t * dy };
+}
+
+/** Clicks outside the triangle are moved to the nearest point on its edge. */
+function clampToTriangle(p) {
+  if (toWeights(p).every(w => w >= 0)) return p;       // already inside
+  let best = null, bestDist = Infinity;
+  [[TOP, LEFT], [LEFT, RIGHT], [RIGHT, TOP]].forEach(([u, v]) => {
+    const q = closestOnSegment(p, u, v);
+    const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    if (d < bestDist) { bestDist = d; best = q; }
+  });
+  return best;
+}
+
+/**
+ * Weights -> three whole numbers in TENTHS of a percent that add up to exactly
+ * 1000 (= 100.0%). Working in integers avoids floating-point drift.
+ */
+function toTenths(a, b, c) {
+  let A = Math.max(0, Math.min(1000, Math.round(a * 1000)));
+  let B = Math.max(0, Math.min(1000, Math.round(b * 1000)));
+  let C = 1000 - A - B;
+  if (C < 0) { C = 0; if (A >= B) A = 1000 - B; else B = 1000 - A; }
+  return [A, B, C];
+}
+
+const fmt = tenths => String(+(tenths / 10).toFixed(1)) + "%";   // 333 -> "33.3%", 400 -> "40%"
+
+/* =====================================================================
+   C. SVG HELPERS + TRIANGLE DRAWING (used by both plots and the example)
+   ===================================================================== */
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs, parent) {
+  const node = document.createElementNS(SVG_NS, name);
+  Object.keys(attrs || {}).forEach(k => node.setAttribute(k, attrs[k]));
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+/** Draws the empty triangle: outline, grid lines, corner markers and labels. */
+function drawTriangle(svg) {
+  // Grid lines every 20%: along each line, one value is constant.
+  for (let i = 0; i < 3; i++) {
+    [0.2, 0.4, 0.6, 0.8].forEach(t => {
+      const w1 = [0, 0, 0], w2 = [0, 0, 0];
+      w1[i] = t; w2[i] = t;
+      const others = [0, 1, 2].filter(n => n !== i);
+      w1[others[0]] = 1 - t; w2[others[1]] = 1 - t;
+      const p = toXY(...w1), q = toXY(...w2);
+      svgEl("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: "#D5DAE1", "stroke-width": 1 }, svg);
+    });
+  }
+  // Outline
+  svgEl("polygon", {
+    points: CORNERS.map(c => c.x + "," + c.y).join(" "),
+    fill: "none", stroke: "#1B2430", "stroke-width": 2.5, "stroke-linejoin": "round"
+  }, svg);
+
+  // Corner markers + value names
+  VALUES.forEach((v, i) => {
+    const c = CORNERS[i];
+    svgEl("circle", { cx: c.x, cy: c.y, r: 8, fill: v.color }, svg);
+    v.lines.forEach((text, n) => {
+      // top label sits above the corner, bottom labels sit below it
+      const y = i === 0 ? c.y - 36 + n * 18 : c.y + 34 + n * 20;
+      const t = svgEl("text", {
+        x: c.x, y: y, "text-anchor": "middle", fill: v.color,
+        "font-size": 18, "font-weight": 700, "font-family": "Segoe UI, system-ui, Arial, sans-serif"
+      }, svg);
+      t.textContent = text;
+    });
+  });
+}
+
+/* =====================================================================
+   D. REUSABLE TERNARY-PLOT COMPONENT
+   Every call creates a completely independent plot: its own dot, readout,
+   sliders, reset button and stored result.
+   ===================================================================== */
+function createPlot(mount, cfg) {
+  const DEFAULT = [333, 333, 334];          // where the sliders rest before a dot is placed
+  let state = null;                          // null = no dot yet; otherwise [a, b, c] in tenths
+  let dragging = false;
+
+  // ---- Build the HTML for this plot ----
+  mount.innerHTML = `
+    <div class="plot-layout">
+      <div class="plot-figure">
+        <svg class="ternary" viewBox="0 0 ${VIEW.w} ${VIEW.h}" role="img"
+             aria-label="Ternary plot with Economic Prosperity at the top, Equality at the bottom left and Environmental Protection at the bottom right. Click or tap to place your dot. Sliders below do the same job."></svg>
+      </div>
+      <div class="plot-side">
+        <h3 style="margin-top:0">Key: the three values</h3>
+        <ul class="key">
+          ${VALUES.map(v => `
+            <li>
+              <span class="swatch" style="background:${v.color}" aria-hidden="true"></span>
+              <span><strong style="color:${v.color}">${v.name}</strong>${v.definition}</span>
+            </li>`).join("")}
+        </ul>
+
+        <div class="readout" aria-live="polite" id="${cfg.id}-readout"></div>
+
+        <fieldset class="sliders">
+          <legend>Or use the sliders (they always add up to 100%)</legend>
+          ${VALUES.map((v, i) => `
+            <div class="slider-row">
+              <label for="${cfg.id}-s${i}" style="color:${v.color}">${v.name}</label>
+              <div class="line">
+                <input type="range" id="${cfg.id}-s${i}" min="0" max="100" step="1" value="33" style="accent-color:${v.color}">
+                <output for="${cfg.id}-s${i}" id="${cfg.id}-o${i}"></output>
+              </div>
+            </div>`).join("")}
+        </fieldset>
+
+        <button type="button" class="btn secondary" id="${cfg.id}-reset">Reset this plot</button>
+      </div>
+    </div>`;
+
+  const svg = mount.querySelector("svg.ternary");
+  const readout = mount.querySelector("#" + cfg.id + "-readout");
+  const sliders = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-s" + i));
+  const outputs = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-o" + i));
+
+  drawTriangle(svg);
+
+  // The dot: a dark disc with a white ring and a thin outer ring (visible on any background).
+  const dot = svgEl("g", { visibility: "hidden", "pointer-events": "none" }, svg);
+  svgEl("circle", { r: 17, fill: "none", stroke: "#1B2430", "stroke-width": 1.5 }, dot);
+  svgEl("circle", { r: 13, fill: "#1B2430", stroke: "#fff", "stroke-width": 3 }, dot);
+
+  // ---- Render the current state to the screen ----
+  function render(skipSliderIndex) {
+    const shown = state || DEFAULT;
+    if (state) {
+      const p = toXY(state[0], state[1], state[2]);
+      dot.setAttribute("transform", `translate(${p.x} ${p.y})`);
+      dot.setAttribute("visibility", "visible");
+      readout.innerHTML = VALUES.map((v, i) =>
+        `<span class="item">${v.name} ${fmt(state[i])}</span>`).join(" / ");
+    } else {
+      dot.setAttribute("visibility", "hidden");
+      readout.textContent = "No dot placed yet. Click or tap inside the triangle.";
+    }
+    VALUES.forEach((v, i) => {
+      if (i !== skipSliderIndex) sliders[i].value = Math.round(shown[i] / 10);
+      outputs[i].textContent = fmt(shown[i]);
+    });
+  }
+
+  function setState(next, skipSliderIndex) {
+    state = next;
+    render(skipSliderIndex);
+    if (cfg.onChange) cfg.onChange();
+  }
+
+  // ---- Pointer (mouse / touch / pen) interaction ----
+  function pointFromEvent(e) {
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
+  }
+  function moveDotTo(e) {
+    const p = clampToTriangle(pointFromEvent(e));
+    const w = toWeights(p);
+    setState(toTenths(w[0], w[1], w[2]));
+  }
+  svg.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    dragging = true;
+    svg.setPointerCapture(e.pointerId);
+    moveDotTo(e);
+  });
+  svg.addEventListener("pointermove", e => { if (dragging) moveDotTo(e); });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(type =>
+    svg.addEventListener(type, () => { dragging = false; }));
+
+  // ---- Keyboard-friendly sliders, linked so the total is always 100 ----
+  // Moving one slider shares the remainder between the other two in proportion.
+  sliders.forEach((slider, i) => {
+    slider.addEventListener("input", () => {
+      const cur = state || DEFAULT;
+      const v = Math.round(parseFloat(slider.value) * 10);
+      const others = [0, 1, 2].filter(n => n !== i);
+      const rest = 1000 - v;
+      const sum = cur[others[0]] + cur[others[1]];
+      const first = sum > 0 ? Math.round(rest * cur[others[0]] / sum) : Math.round(rest / 2);
+      const next = [0, 0, 0];
+      next[i] = v; next[others[0]] = first; next[others[1]] = rest - first;
+      setState(next, i);
+    });
+  });
+
+  // ---- Reset ----
+  mount.querySelector("#" + cfg.id + "-reset").addEventListener("click", () => setState(null));
+
+  render();
+
+  // ---- What the rest of the page can ask this plot ----
+  return {
+    isPlaced: () => state !== null,
+    // Returns {economic_prosperity, equality, environmental_protection} in percent
+    // (one decimal place, summing to exactly 100), or null if no dot is placed yet.
+    getValues: () => {
+      if (!state) return null;
+      const out = {};
+      VALUES.forEach((v, i) => { out[v.key] = state[i] / 10; });
+      return out;
+    }
+  };
+}
+
+/* =====================================================================
+   E. PAGE FLOW
+   ===================================================================== */
+// Everyone uses the SAME link. Adding ?preview to the link (e.g. https://.../index.html?preview)
+// gives PREVIEW MODE: the full survey is visible but submitting is disabled and nothing is sent.
+const params = new URLSearchParams(window.location.search);
+const PREVIEW = params.has("preview");
+
+const $ = id => document.getElementById(id);
+const screens = {
+  intro: $("screen-intro"), plot1: $("screen-plot1"), plot2: $("screen-plot2"),
+  thanks: $("screen-thanks"), already: $("screen-already")
+};
+
+function show(name) {
+  Object.keys(screens).forEach(k => { screens[k].hidden = (k !== name); });
+  const heading = screens[name].querySelector("h2");
+  window.scrollTo(0, 0);
+  if (heading) heading.focus();
+}
+
+// ONE SUBMISSION PER RESPONDENT
+//  - Primary check (server-side): each browser gets a random anonymous token. The server keeps
+//    only a hash of it and rejects a second submission from the same token.
+//  - Backup (client-side): a localStorage flag shows the "already responded" screen.
+// localStorage can fail (e.g. private mode), so everything is wrapped in try/catch.
+function makeToken() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");   // 32 hex characters
+}
+function getToken() {
+  try {
+    let t = localStorage.getItem(TOKEN_KEY);
+    if (!t || !/^[a-f0-9]{32}$/.test(t)) { t = makeToken(); localStorage.setItem(TOKEN_KEY, t); }
+    return t;
+  } catch (e) { return makeToken(); }
+}
+function alreadySubmittedHere() {
+  try { return !PREVIEW && localStorage.getItem(STORAGE_KEY) === "done"; } catch (e) { return false; }
+}
+function rememberSubmission() {
+  try { localStorage.setItem(STORAGE_KEY, "done"); } catch (e) { /* ignore */ }
+}
+
+// Example triangle on the intro screen
+(function drawExample() {
+  const svg = $("example-svg");
+  drawTriangle(svg);
+  [{ l: "A", w: [70, 15, 15] }, { l: "B", w: [33.3, 33.3, 33.4] }, { l: "C", w: [10, 80, 10] }].forEach(d => {
+    const p = toXY(...d.w);
+    svgEl("circle", { cx: p.x, cy: p.y, r: 15, fill: "#1B2430", stroke: "#fff", "stroke-width": 3 }, svg);
+    const t = svgEl("text", { x: p.x, y: p.y + 5.5, "text-anchor": "middle", fill: "#fff", "font-size": 16, "font-weight": 700,
+                              "font-family": "Segoe UI, system-ui, Arial, sans-serif" }, svg);
+    t.textContent = d.l;
+  });
+})();
+
+// The two independent plots
+const plotPresent = createPlot($("mount-present"), { id: "present", onChange: updateButtons });
+const plot2060    = createPlot($("mount-2060"),    { id: "p2060",   onChange: updateButtons });
+
+const btnNext = $("btn-next"), btnSubmit = $("btn-submit");
+let submitting = false;
+
+function updateButtons() {
+  // Preview mode lets a marker move through the survey without placing dots.
+  const p1ok = plotPresent.isPlaced() || PREVIEW;
+  btnNext.disabled = !p1ok;
+  $("hint-next").textContent = p1ok ? "" : "Place your dot to continue.";
+
+  const both = plotPresent.isPlaced() && plot2060.isPlaced();
+  btnSubmit.disabled = PREVIEW || !both || submitting;
+  $("hint-submit").textContent = PREVIEW
+    ? "Preview only: responses can only be submitted from the main survey link."
+    : (both ? "" : "Place a dot on both plots to submit.");
+}
+
+function setStatus(text, isError) {
+  const s = $("submit-status");
+  s.textContent = text;
+  s.className = "status" + (isError ? " error" : "");
+}
+
+$("btn-start").addEventListener("click", () => show("plot1"));
+$("btn-back-intro").addEventListener("click", () => show("intro"));
+btnNext.addEventListener("click", () => show("plot2"));
+$("btn-back-plot1").addEventListener("click", () => show("plot1"));
+btnSubmit.addEventListener("click", submit);
+
+async function submit() {
+  if (PREVIEW || submitting) return;                       // preview mode never contacts the server
+  const present = plotPresent.getValues(), future = plot2060.getValues();
+  if (!present || !future) return;
+  if (APPS_SCRIPT_URL.indexOf("PASTE_") === 0) { setStatus(MESSAGES.not_configured, true); return; }
+
+  submitting = true; updateButtons();
+  btnSubmit.textContent = "Sending...";
+  setStatus("", false);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);     // give up after 20 seconds
+  let retry = false;
+  try {
+    // Content-Type text/plain avoids the CORS "preflight" request that Apps Script cannot answer.
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: getToken(), present: present, y2060: future }),
+      signal: controller.signal
+    });
+    const data = await res.json();
+    if (data && data.ok) {
+      rememberSubmission();
+      show("thanks");
+      return;
+    }
+    const err = (data && data.error) || "server_error";
+    if (err === "already_submitted") { rememberSubmission(); show("already"); return; }
+    setStatus(MESSAGES[err] || MESSAGES.server_error, true);
+    retry = RETRYABLE.indexOf(err) !== -1;
+  } catch (e) {
+    setStatus(MESSAGES.network, true);
+    retry = true;
+  } finally {
+    clearTimeout(timer);
+    submitting = false;
+    btnSubmit.textContent = retry ? "Try again" : "Submit my answers";
+    updateButtons();
+  }
+}
+
+// ---- Start-up ----
+$("preview-banner").hidden = !PREVIEW;
+updateButtons();
+show(alreadySubmittedHere() ? "already" : "intro");
+</script>
+</body>
+</html>
