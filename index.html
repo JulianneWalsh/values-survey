@@ -105,14 +105,11 @@ svg.example { cursor: default; touch-action: auto; max-width: 420px; }
 .swatch { width: 16px; height: 16px; border-radius: 50%; margin-top: 5px; }
 .key strong { display: block; }
 
-/* Live readout: one row per value, with a bar that grows as you drag */
+/* Live readout: one line of text that updates as you drag */
 .readout { padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fff; margin-bottom: 14px; }
 .readout-empty { margin: 0; color: var(--muted); font-weight: 600; }
-.readout .row { margin-bottom: 10px; }
-.readout .row:last-child { margin-bottom: 0; }
-.row-top { display: flex; justify-content: space-between; font-weight: 700; }
-.track { height: 10px; border-radius: 5px; background: #E8E4FA; overflow: hidden; margin-top: 4px; }
-.fill { height: 100%; width: 0; border-radius: 5px; }
+.readout-line { margin: 0; font-weight: 700; }
+.readout-line .item { white-space: nowrap; }
 
 fieldset.sliders { margin: 16px 0; padding: 12px 16px 4px; border: 1px solid var(--line); border-radius: 16px; }
 fieldset.sliders legend { padding: 0 6px; font-weight: 700; }
@@ -440,18 +437,11 @@ function createPlot(mount, cfg) {
 
         <div class="readout" id="${cfg.id}-readout">
           <p class="readout-empty">No dot placed yet. Tap or click inside the triangle.</p>
-          <div class="rows" hidden>
-            ${VALUES.map((v, i) => `
-              <div class="row">
-                <div class="row-top"><span style="color:${v.color}">${v.name}</span><span id="${cfg.id}-r${i}"></span></div>
-                <div class="track"><div class="fill" id="${cfg.id}-f${i}" style="background:${v.color}"></div></div>
-              </div>`).join("")}
-          </div>
-          <p class="sr-only" aria-live="polite" id="${cfg.id}-sr"></p>
+          <p class="readout-line" id="${cfg.id}-line" aria-live="polite" hidden></p>
         </div>
 
         <fieldset class="sliders">
-          <legend>Or use the sliders (they always add up to 100%)</legend>
+          <legend>Fine-tune with the sliders (always 100% in total)</legend>
           ${VALUES.map((v, i) => `
             <div class="slider-row">
               <label for="${cfg.id}-s${i}" style="color:${v.color}">${v.name}</label>
@@ -468,10 +458,7 @@ function createPlot(mount, cfg) {
 
   const svg = mount.querySelector("svg.ternary");
   const readoutEmpty = mount.querySelector(".readout-empty");
-  const readoutRows = mount.querySelector(".rows");
-  const readoutSr = mount.querySelector("#" + cfg.id + "-sr");
-  const readoutText = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-r" + i));
-  const readoutFill = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-f" + i));
+  const readoutLine = mount.querySelector("#" + cfg.id + "-line");
   const sliders = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-s" + i));
   const outputs = VALUES.map((v, i) => mount.querySelector("#" + cfg.id + "-o" + i));
 
@@ -492,18 +479,14 @@ function createPlot(mount, cfg) {
       dot.setAttribute("transform", `translate(${p.x} ${p.y})`);
       dot.setAttribute("visibility", "visible");
       readoutEmpty.hidden = true;
-      readoutRows.hidden = false;
-      VALUES.forEach((v, i) => {
-        readoutText[i].textContent = fmt(state[i]);
-        readoutFill[i].style.width = (state[i] / 10) + "%";
-      });
-      // e.g. "Economic Prosperity 40% / Equality 35% / Environmental Protection 25%" (read aloud by screen readers)
-      readoutSr.textContent = VALUES.map((v, i) => v.name + " " + fmt(state[i])).join(" / ");
+      readoutLine.hidden = false;
+      // e.g. "Economic Prosperity 40% / Equality 35% / Environmental Protection 25%"
+      readoutLine.innerHTML = VALUES.map((v, i) =>
+        `<span class="item">${v.name} ${fmt(state[i])}</span>`).join(" / ");
     } else {
       dot.setAttribute("visibility", "hidden");
       readoutEmpty.hidden = false;
-      readoutRows.hidden = true;
-      readoutSr.textContent = "";
+      readoutLine.hidden = true;
     }
     VALUES.forEach((v, i) => {
       if (i !== skipSliderIndex) sliders[i].value = Math.round(shown[i] / 10);
